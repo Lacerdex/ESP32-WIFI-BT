@@ -1,0 +1,214 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// Pinos usados no esp32
+#define RX 16
+#define TX 17
+
+// Potência de transmissão em dBm a 1 metro de distância (padrão típico)
+const int txPower = -59;
+
+// Número de roteadores a serem retornados
+const int NUM_ROUTERS = 3;
+int ID = 01;  // ID do dispositivo
+
+// Defina aqui a rede WiFi e senha para conexão
+const char* SSID_WIFI = "REDE WIFI";
+const char* PASSWORD_WIFI = "SENHA DA REDE";
+
+// URL do servidor para enviar os dados
+const char* serverURL = "http://(IPV4 da maquina):(porta)/(conteudo)"; 
+
+// Defina os SSIDs dos três pontos Wi-Fi específicos que você deseja monitorar
+const char* SSID_ALVO[NUM_ROUTERS] = {"SSID_A", "SSID_B", "SSID_C"};
+
+void setup() {
+  Serial.begin(115200);
+  // Serial para iniciar os pinos RX e TX
+  Serial1.begin(9600, SERIAL_8N1, RX, TX); // Aqui 16 é RX2 e 17 é TX2
+  
+  // Conecta-se à rede WiFi definida
+  conectarWiFi();
+  
+  Serial.println("Iniciando busca por redes WiFi...");
+}
+
+void loop() {
+  // Exemplo de leitura e escrita
+  if (Serial.available()) {
+    char received = Serial.read();
+    Serial1.write(received);
+  }
+  
+  // Verifica se o WiFi está conectado
+  verificarConexaoWiFi();
+
+  int n = WiFi.scanNetworks();
+  if (n == 0) {
+    Serial.println("Nenhuma rede encontrada");
+  } else {
+    Serial.printf("%d redes encontradas:\n", n);
+    
+    // Array para armazenar SSID e distâncias
+    String listaSSID[n];
+    float listaDistancias[n];
+    
+    for (int i = 0; i < n; ++i) {
+      String ssid = WiFi.SSID(i);
+      int32_t rssi = WiFi.RSSI(i);
+      float distancia = calcularDistancia(rssi, txPower);
+      
+      listaSSID[i] = ssid;
+      listaDistancias[i] = distancia;
+      
+      Serial.printf("SSID: %s, RSSI: %d dBm, Distância estimada: %.2f metros\n", ssid.c_str(), rssi, distancia);
+    }
+    
+    // Seleciona os roteadores desejados ou substitui pelos mais próximos
+    selecionarRoteadoresEspecificos(listaSSID, listaDistancias, n, NUM_ROUTERS);
+
+    // Envia as informações para o servidor
+    enviarDadosParaServidor(listaSSID, listaDistancias, NUM_ROUTERS, ID);
+  }
+
+  // Espera antes da próxima varredura
+  delay(10000);
+}
+
+// Função para calcular a distância com base no RSSI
+float calcularDistancia(int32_t rssi, int txPower) {
+  if (rssi == 0) {
+    return -1.0; // Impossível calcular a distância
+  }
+  
+  float ratio = rssi * 1.0 / txPower;
+  if (ratio < 1.0) {
+    return pow(ratio, 10);
+  } else {
+    return (0.89976) * pow(ratio, 7.7095) + 0.111;
+  }
+}
+
+// Função para selecionar os roteadores desejados ou substitui pelos mais próximos
+void selecionarRoteadoresEspecificos(String listaSSID[], float listaDistancias[], int n, int numRoteadores) {
+  String roteadoresSelecionados[numRoteadores];
+  float distanciasSelecionadas[numRoteadores];
+
+  // Inicializa os arrays de SSID e distâncias selecionadas
+  for (int i = 0; i < numRoteadores; i++) {
+    roteadoresSelecionados[i] = "";
+    distanciasSelecionadas[i] = 1e6; // Valor arbitrariamente grande
+  }
+
+  // Primeiro, tenta encontrar os SSIDs desejados
+  for (int i = 0; i < numRoteadores; i++) {
+    for (int j = 0; j < n; j++) {
+      if (listaSSID[j] == SSID_ALVO[i]) {
+        roteadoresSelecionados[i] = listaSSID[j];
+        distanciasSelecionadas[i] = listaDistancias[j];
+        break;
+      }
+    }
+  }
+
+  // Para cada SSID não encontrado, substitui pelo mais próximo disponível que não esteja na lista de selecionados
+  for (int i = 0; i < numRoteadores; i++) {
+    if (roteadoresSelecionados[i] == "") {
+      int indexMaisProximo = -1;
+      float menorDistancia = 1e6; // Valor arbitrariamente grande
+      
+      for (int j = 0; j < n; j++) {
+        // Verifica se o SSID já foi selecionado
+        bool jaSelecionado = false;
+        for (int k = 0; k < numRoteadores; k++) {
+          if (listaSSID[j] == roteadoresSelecionados[k]) {
+            jaSelecionado = true;
+            break;
+          }
+        }
+
+        // Se não foi selecionado e a distância é menor, seleciona este
+        if (!jaSelecionado && listaDistancias[j] < menorDistancia) {
+          indexMaisProximo = j;
+          menorDistancia = listaDistancias[j];
+        }
+      }
+
+      // Se encontrou um SSID para substituir, faz a substituição
+      if (indexMaisProximo != -1) {
+        roteadoresSelecionados[i] = listaSSID[indexMaisProximo];
+        distanciasSelecionadas[i] = listaDistancias[indexMaisProximo];
+      }
+    }
+  }
+
+  // Substitui os arrays originais pelos selecionados
+  for (int i = 0; i < numRoteadores; i++) {
+    listaSSID[i] = roteadoresSelecionados[i];
+    listaDistancias[i] = distanciasSelecionadas[i];
+  }
+
+  // Exibe os roteadores selecionados
+  Serial.print("Roteadores selecionados: ");
+  for (int i = 0; i < numRoteadores; i++) {
+    Serial.printf("%s (%.2f metros)", roteadoresSelecionados[i].c_str(), distanciasSelecionadas[i]);
+    if (i < numRoteadores - 1) Serial.print(" e ");
+  }
+  Serial.println();
+}
+
+// Função para enviar dados ao servidor via HTTP
+void enviarDadosParaServidor(String listaSSID[], float listaDistancias[], int numRoteadores, int ID) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(serverURL);
+
+    String postData = "ID=" + String(ID);
+    for (int i = 0; i < numRoteadores; i++) {
+      postData += "&router" + String(i+1) + "_ssid=" + listaSSID[i];
+      postData += "&router" + String(i+1) + "_distancia=" + String(listaDistancias[i], 2);
+    }
+
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    int httpResponseCode = http.POST(postData);
+    
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.printf("Resposta do servidor: %s\n", response.c_str());
+    } else {
+      Serial.printf("Erro na solicitação HTTP: %d\n", httpResponseCode);
+    }
+    
+    http.end();
+  } else {
+    Serial.println("Erro: Não conectado ao WiFi");
+  }
+}
+
+// Função para conectar à rede WiFi definida
+void conectarWiFi() {
+  WiFi.begin(SSID_WIFI, PASSWORD_WIFI);
+
+  Serial.printf("Conectando-se à rede WiFi: %s", SSID_WIFI);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print("Tentando conectar ao WiFi!");
+  }
+  
+  Serial.println("\nConectado ao WiFi!");
+}
+
+// Função para verificar a conexão WiFi e tentar reconectar se desconectado
+void verificarConexaoWiFi() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi desconectado!\nTentando reconectar...");
+    
+    while (WiFi.status() != WL_CONNECTED) {
+      conectarWiFi();
+      delay(5000); // Espera antes de tentar reconectar novamente
+    }
+    
+    Serial.println("Reconectado ao WiFi!");
+  }
+}
