@@ -11,7 +11,7 @@ O objetivo central deste código é utilizar o ESP-WROOM-32 para determinar uma 
 | Comunicação |	Wi-Fi, HTTPClient |	Conexão à rede local e envio de dados para o servidor (Endpoint 192.168.0.106:3000). |
 | Sinalização |	3 LEDs (Verde, Vermelho, Amarelo) |	Feedback visual sobre status e erros. |
 | Interface |	Botão (botaoStatus) |	Alternância de estado (Disponível / Ocupado). |
-| Localização |	RSSI (Potência do Sinal) |	Usado para trilateração ou fingerprinting (a função calcularDistancia sugere cálculo de distância). |
+| Localização |	RSSI (Potência do Sinal) |	Usado para trilateração ou fingerprinting (a função `calcularDistancia` sugere cálculo de distância). |
 
 # 💡 Modelo de Funcionamento e Sinais Visuais
 
@@ -30,6 +30,6 @@ O código já define um protocolo de piscadas para erros específicos:
 | Evento | Padrão de Piscar (Amarelo) |	Função de Erro |
 | :--- | :--- | :--- |
 | Tentativa de Conexão Wi-Fi |	2 piscadas (lenta) |	Indica que o dispositivo está tentando se conectar à rede local. |
-| Falha na Internet |	4 piscadas (lenta) |	Conectado ao Wi-Fi, mas sem acesso à internet (falha no checagemDeInternet). |
+| Falha na Internet |	4 piscadas (lenta) |	Conectado ao Wi-Fi, mas sem acesso à internet (falha no `checagemDeInternet`). |
 | Falha Crítica (Wi-Fi) |	5 piscadas (rápida) |	Falha após muitas tentativas de conexão/reconexão Wi-Fi. |
 | Falha no POST HTTP |	3 piscadas (normal) |	Erro ao tentar enviar dados ao servidor de rastreamento. |
